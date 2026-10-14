@@ -1,24 +1,26 @@
--- LITE MAX v3: NO LAG + SPEED + FLY/NOCLIP (client-side)
+-- LITE MAX v4: POTATO NO-LAG + SPEED + FLY/NOCLIP + INFINITE JUMP (client-side)
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local SoundService = game:GetService("SoundService")
+local StarterGui = game:GetService("StarterGui")
 local lp = Players.LocalPlayer
 local Terrain = Workspace:FindFirstChildOfClass("Terrain")
 
 local CFG = {
     FpsCap = 120,
     HidePlayers = true,
-    MuteSounds = false,     -- true = hapus semua Sound
-    KillWorldGuis = true,   -- hapus SurfaceGui/BillboardGui di map (bukan UI layarmu)
+    MuteSounds = false,    -- true = hapus semua Sound (lebih ringan)
+    KillWorldGuis = true,  -- hapus SurfaceGui/BillboardGui di map
+    HideCoreUI = false,    -- true = matikan chat, leaderboard, dll
 }
 
 local state = {
     speed = false, speedValue = 50,
     fly = false, flySpeed = 60,
-    noclip = false,
+    infJump = false,
     up = false, down = false,
 }
 
@@ -30,15 +32,25 @@ for _, c in ipairs({
     "BloomEffect", "BlurEffect", "SunRaysEffect", "DepthOfFieldEffect",
     "ColorCorrectionEffect", "Atmosphere", "Sky", "Clouds",
     "SelectionBox", "SelectionSphere", "PostEffect", "LensFlare",
+    "Fire", "Smoke", "Sparkles", "ParticleEmitter",
 }) do kill[c] = true end
 
 local texCls = { Decal = true, Texture = true, SurfaceAppearance = true }
 
+-- Render & fisika
 pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
 pcall(function() settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level04 end)
 pcall(function() settings().Rendering.EagerBulkExecution = true end)
 pcall(function() settings().Physics.AllowSleep = true end)
+pcall(function() settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Skip2 end)
+pcall(function() SoundService.AmbientReverb = Enum.ReverbType.NoReverb end)
+pcall(function() SoundService.RespectFilteringEnabled = true end)
 if setfpscap then pcall(setfpscap, CFG.FpsCap) end
+
+if CFG.MuteSounds then pcall(function() SoundService.Volume = 0 end) end
+if CFG.HideCoreUI then
+    pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
+end
 
 local function applyLighting()
     Lighting.GlobalShadows = false
@@ -90,8 +102,8 @@ local function optimize(o)
             o.LocalTransparencyModifier = 1
             o.CastShadow = false
         elseif o:IsA("Accessory") or o:IsA("Clothing") or o:IsA("ShirtGraphic")
-            or o:IsA("BillboardGui") or o:IsA("SurfaceGui") or kill[o.ClassName]
-            or texCls[o.ClassName] then
+            or o:IsA("BillboardGui") or o:IsA("SurfaceGui") or o:IsA("Animator")
+            or kill[o.ClassName] or texCls[o.ClassName] then
             pcall(function() o:Destroy() end)
         end
         return
@@ -118,12 +130,13 @@ local function optimize(o)
     end
 end
 
+-- Batch kecil supaya HP kentang tidak freeze saat scan awal
 local function processAll(root)
     local n = 0
     for _, o in ipairs(root:GetDescendants()) do
         pcall(optimize, o)
         n += 1
-        if n % 600 == 0 then task.wait() end
+        if n % 250 == 0 then task.wait() end
     end
 end
 
@@ -135,23 +148,41 @@ end)
 Workspace.DescendantAdded:Connect(function(o) task.defer(pcall, optimize, o) end)
 Lighting.DescendantAdded:Connect(function(o) task.defer(pcall, optimize, o) end)
 
-if CFG.MuteSounds then SoundService.Volume = 0 end
+-- Sembunyikan pemain lain (event-based, tidak scan terus-menerus)
+local function setCharHidden(char, hidden)
+    for _, o in ipairs(char:GetDescendants()) do
+        if o:IsA("BasePart") then
+            o.LocalTransparencyModifier = hidden and 1 or 0
+        end
+    end
+end
 
+local function watchPlayer(plr)
+    if plr == lp then return end
+    local function onChar(char)
+        task.wait(0.3)
+        if CFG.HidePlayers then
+            for _, o in ipairs(char:GetDescendants()) do pcall(optimize, o) end
+        end
+        char.DescendantAdded:Connect(function(o) task.defer(pcall, optimize, o) end)
+    end
+    if plr.Character then task.spawn(onChar, plr.Character) end
+    plr.CharacterAdded:Connect(onChar)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do watchPlayer(p) end
+Players.PlayerAdded:Connect(watchPlayer)
+
+-- Loop pemeliharaan ringan: reset lighting yang dikembalikan game + sembunyikan ulang pemain
 task.spawn(function()
     while true do
-        task.wait(1)
+        task.wait(3)
         applyLighting()
         applyTerrain()
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= lp and plr.Character then
-                for _, o in ipairs(plr.Character:GetDescendants()) do
-                    if o:IsA("BasePart") then
-                        o.LocalTransparencyModifier = CFG.HidePlayers and 1 or 0
-                    elseif o:IsA("Animator") then
-                        for _, t in ipairs(o:GetPlayingAnimationTracks()) do
-                            pcall(function() t:Stop(0) end)
-                        end
-                    end
+        if CFG.HidePlayers then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= lp and plr.Character then
+                    setCharHidden(plr.Character, true)
                 end
             end
         end
@@ -186,10 +217,10 @@ gui.ResetOnSpawn = false
 gui.DisplayOrder = 100
 gui.Parent = parent
 
-local FULL_H = 305
+local FULL_H = 315
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, 230, 0, FULL_H)
-main.Position = UDim2.new(0, 10, 0.2, 0)
+main.Position = UDim2.new(0, 10, 0.15, 0)
 main.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 main.BorderSizePixel = 0
 main.Parent = gui
@@ -199,7 +230,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -30, 0, 28)
 title.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 title.BorderSizePixel = 0
-title.Text = "  Lite Max v3 | FPS: --"
+title.Text = "  Lite Max v4 | FPS: --"
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.TextColor3 = Color3.new(1, 1, 1)
 title.Font = Enum.Font.GothamBold
@@ -339,8 +370,17 @@ end
 local upBtn = makeHoldButton("▲", UDim2.new(1, -80, 0.55, 0), "up")
 local downBtn = makeHoldButton("▼", UDim2.new(1, -80, 0.55, 70), "down")
 
----------------------------------------------------------------- FLY + NOCLIP
+---------------------------------------------------------------- FLY + NOCLIP (satu paket)
 local bv, bg
+local charParts = {}
+
+local function cacheParts(char)
+    charParts = {}
+    if not char then return end
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then table.insert(charParts, p) end
+    end
+end
 
 local function getParts()
     local char = lp.Character
@@ -351,6 +391,7 @@ end
 local function startFly()
     local root, hum = getParts()
     if not root or not hum or bv then return end
+    cacheParts(lp.Character)
     bv = Instance.new("BodyVelocity")
     bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
     bv.Velocity = Vector3.zero
@@ -371,22 +412,23 @@ local function stopFly()
     state.up, state.down = false, false
 end
 
--- Noclip aktif kalau toggle Noclip ON atau Fly ON
+-- Noclip otomatis aktif selama Fly ON
 RunService.Stepped:Connect(function()
-    if state.noclip or state.fly then
-        local char = lp.Character
-        if char then
-            for _, p in ipairs(char:GetDescendants()) do
-                if p:IsA("BasePart") and p.CanCollide then
-                    p.CanCollide = false
-                end
-            end
+    if state.fly then
+        for i = 1, #charParts do
+            local p = charParts[i]
+            if p.Parent and p.CanCollide then p.CanCollide = false end
         end
     end
 end)
 
 ---------------------------------------------------------------- MENU ITEMS
-makeToggle("Hide Players", 10, CFG.HidePlayers, function(on) CFG.HidePlayers = on end)
+makeToggle("Hide Players", 10, CFG.HidePlayers, function(on)
+    CFG.HidePlayers = on
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp and plr.Character then setCharHidden(plr.Character, on) end
+    end
+end)
 
 makeToggle("Layar Hitam", 46, false, function(on)
     blackFrame.Visible = on
@@ -409,11 +451,11 @@ makeToggle("Fly + Noclip", 154, false, function(on)
 end)
 makeInput("Fly speed", 190, state.flySpeed, function(n) state.flySpeed = n end)
 
-makeToggle("Noclip saja", 226, false, function(on) state.noclip = on end)
+makeToggle("Infinite Jump", 226, false, function(on) state.infJump = on end)
 
 local hint = Instance.new("TextLabel")
 hint.Size = UDim2.new(1, -20, 0, 20)
-hint.Position = UDim2.new(0, 10, 0, 262)
+hint.Position = UDim2.new(0, 10, 0, 266)
 hint.BackgroundTransparency = 1
 hint.Text = "PC: Space naik, Ctrl turun"
 hint.TextColor3 = Color3.fromRGB(150, 150, 160)
@@ -429,6 +471,14 @@ end)
 UIS.InputEnded:Connect(function(i)
     if i.KeyCode == Enum.KeyCode.Space then state.up = false end
     if i.KeyCode == Enum.KeyCode.LeftControl then state.down = false end
+end)
+
+-- Infinite Jump (PC & tombol lompat HP)
+UIS.JumpRequest:Connect(function()
+    if state.infJump and not state.fly then
+        local _, hum = getParts()
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
 end)
 
 RunService.Heartbeat:Connect(function()
@@ -454,12 +504,11 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
-lp.CharacterAdded:Connect(function()
+lp.CharacterAdded:Connect(function(char)
     bv, bg = nil, nil
-    if state.fly then
-        task.wait(1)
-        startFly()
-    end
+    task.wait(1)
+    cacheParts(char)
+    if state.fly then startFly() end
 end)
 
 do
@@ -468,10 +517,10 @@ do
         frames += 1
         local now = os.clock()
         if now - last >= 1 then
-            title.Text = "  Lite Max v3 | FPS: " .. frames
+            title.Text = "  Lite Max v4 | FPS: " .. frames
             frames, last = 0, now
         end
     end)
 end
 
-print("[Lite Max v3] aktif")
+print("[Lite Max v4] aktif")
