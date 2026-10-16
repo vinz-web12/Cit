@@ -523,4 +523,166 @@ do
     end)
 end
 
+---------------------------------------------------------------- XoXo ESP MODULE (tambahan)
+do
+    local _xesp_Players     = Players
+    local _xesp_RunService  = RunService
+    local _xesp_Workspace   = Workspace
+    local _xesp_Camera      = Workspace.CurrentCamera
+    _xesp_Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+        if _xesp_Workspace.CurrentCamera then _xesp_Camera = _xesp_Workspace.CurrentCamera end
+    end)
+
+    local _xesp_CFG = {
+        Enabled   = true,
+        TeamCheck = false,
+        BoxColor  = Color3.fromRGB(255, 0, 80),
+        NameColor = Color3.fromRGB(255, 255, 255),
+        ShowBox   = true,
+        ShowName  = true,
+        ShowDist  = true,
+        MaxDist   = 1000,
+    }
+
+    -- Parent GUI aman (pakai gethui kalau ada, fallback PlayerGui)
+    local _xesp_parent = (gethui and gethui()) or lp:WaitForChild("PlayerGui")
+
+    local _xesp_folder = Instance.new("Folder")
+    _xesp_folder.Name = "XoXoESP_"..tostring(math.random(1000,9999))
+    _xesp_folder.Parent = _xesp_parent
+
+    local _xesp_cache = {}
+
+    local function _xesp_build(plr)
+        if plr == lp or _xesp_cache[plr] then return end
+
+        local hl = Instance.new("Highlight")
+        hl.FillColor          = _xesp_CFG.BoxColor
+        hl.OutlineColor       = Color3.new(1,1,1)
+        hl.FillTransparency   = 0.6
+        hl.OutlineTransparency = 0
+        hl.DepthMode          = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Parent             = _xesp_folder
+
+        local bb = Instance.new("BillboardGui")
+        bb.Size        = UDim2.new(0, 160, 0, 36)
+        bb.StudsOffset = Vector3.new(0, 3.5, 0)
+        bb.AlwaysOnTop = true
+        bb.MaxDistance = _xesp_CFG.MaxDist
+        bb.Parent      = _xesp_folder
+
+        local nameLbl = Instance.new("TextLabel")
+        nameLbl.Size                   = UDim2.new(1,0,0.55,0)
+        nameLbl.BackgroundTransparency = 1
+        nameLbl.TextColor3             = _xesp_CFG.NameColor
+        nameLbl.TextStrokeTransparency = 0
+        nameLbl.TextStrokeColor3       = Color3.new(0,0,0)
+        nameLbl.TextScaled             = true
+        nameLbl.Font                   = Enum.Font.GothamBold
+        nameLbl.Parent                 = bb
+
+        local infoLbl = Instance.new("TextLabel")
+        infoLbl.Size                   = UDim2.new(1,0,0.45,0)
+        infoLbl.Position               = UDim2.new(0,0,0.55,0)
+        infoLbl.BackgroundTransparency = 1
+        infoLbl.TextColor3             = _xesp_CFG.BoxColor
+        infoLbl.TextStrokeTransparency = 0
+        infoLbl.TextStrokeColor3       = Color3.new(0,0,0)
+        infoLbl.TextScaled             = true
+        infoLbl.Font                   = Enum.Font.Gotham
+        infoLbl.Parent                 = bb
+
+        _xesp_cache[plr] = {hl = hl, bb = bb, name = nameLbl, info = infoLbl}
+    end
+
+    local function _xesp_remove(plr)
+        local d = _xesp_cache[plr]
+        if d then
+            pcall(function() d.hl:Destroy() end)
+            pcall(function() d.bb:Destroy() end)
+            _xesp_cache[plr] = nil
+        end
+    end
+
+    for _, p in ipairs(_xesp_Players:GetPlayers()) do _xesp_build(p) end
+    _xesp_Players.PlayerAdded:Connect(_xesp_build)
+    _xesp_Players.PlayerRemoving:Connect(_xesp_remove)
+
+    _xesp_RunService.RenderStepped:Connect(function()
+        if not _xesp_CFG.Enabled then return end
+        local myChar = lp.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+        for plr, d in pairs(_xesp_cache) do
+            pcall(function()
+                local char = plr.Character
+                if not char then
+                    d.hl.Adornee = nil; d.bb.Adornee = nil
+                    return
+                end
+                local hum  = char:FindFirstChildOfClass("Humanoid")
+                local head = char:FindFirstChild("Head") or char:FindFirstChildWhichIsA("BasePart")
+                local root = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+
+                if not hum or hum.Health <= 0 or not root then
+                    d.hl.Adornee = nil; d.bb.Adornee = nil
+                    return
+                end
+
+                -- Team check
+                if _xesp_CFG.TeamCheck and plr.Team and lp.Team and plr.Team == lp.Team then
+                    d.hl.Adornee = nil; d.bb.Adornee = nil
+                    return
+                end
+
+                -- Distance check
+                local dist = 0
+                if myRoot then
+                    dist = (root.Position - myRoot.Position).Magnitude
+                    if dist > _xesp_CFG.MaxDist then
+                        d.hl.Adornee = nil; d.bb.Adornee = nil
+                        return
+                    end
+                end
+
+                -- Apply
+                d.hl.Adornee = char
+                d.hl.Enabled = _xesp_CFG.ShowBox
+
+                d.bb.Adornee = head
+                d.bb.Enabled = (_xesp_CFG.ShowName or _xesp_CFG.ShowDist)
+
+                d.name.Text = _xesp_CFG.ShowName and plr.Name or ""
+                d.name.Visible = _xesp_CFG.ShowName
+
+                if _xesp_CFG.ShowDist then
+                    d.info.Text = string.format("[%d HP] %dm", math.floor(hum.Health), math.floor(dist))
+                    d.info.Visible = true
+                else
+                    d.info.Visible = false
+                end
+            end)
+        end
+    end)
+
+    -- Toggle ESP via tombol E (opsional, biar gampang on/off)
+    UIS.InputBegan:Connect(function(i, gp)
+        if gp then return end
+        if i.KeyCode == Enum.KeyCode.E then
+            _xesp_CFG.Enabled = not _xesp_CFG.Enabled
+            for _, d in pairs(_xesp_cache) do
+                d.hl.Enabled = _xesp_CFG.Enabled
+                d.bb.Enabled = _xesp_CFG.Enabled
+                if not _xesp_CFG.Enabled then
+                    d.hl.Adornee = nil
+                    d.bb.Adornee = nil
+                end
+            end
+        end
+    end)
+
+    print("[XoXo ESP] module attached. Tekan E buat toggle.")
+end
+---------------------------------------------------------------- END XoXo ESP
+
 print("[Lite Max v4] aktif")
